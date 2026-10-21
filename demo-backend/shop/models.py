@@ -1,7 +1,9 @@
 """Shop models — one field of every type the admin form must render.
 
 Products exercise: char (required), text (optional), decimal, integer,
-boolean, date, FK. Orders add: enum (choices), datetime (auto/read-only).
+boolean, date, FK, and a blank-allowing FREE enum (case C — the schema
+emits oneOf[PriorityEnum, BlankEnum], see docs/independent-enums.md §2).
+Orders add: enum (choices), datetime (auto/read-only).
 
 FR-R001 (ROADLOG R-001): Order carries the reference lifecycle state
 machine — an ordered Status enum, an explicit transition table, and an
@@ -25,6 +27,18 @@ class Category(models.Model):
 
 
 class Product(models.Model):
+    # FR-ENUM-ONEOF: a FREE enum (no R-001 machine behind it) declared with
+    # blank=True, so the field has a real empty state. That is exactly
+    # drf-spectacular's case C: the property stops being a plain $ref and is
+    # emitted as {"oneOf": [PriorityEnum, BlankEnum]} (hooks.py:145-164,
+    # ENUM_ADD_EXPLICIT_BLANK_NULL_CHOICE defaults True). docs/independent-enums.md
+    # §2/§4 — the rig carries this shape so the client's handling of it stays
+    # fixture-proven instead of guessed.
+    class Priority(models.TextChoices):
+        LOW = "low", "Low"
+        NORMAL = "normal", "Normal"
+        HIGH = "high", "High"
+
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, default="")
@@ -32,6 +46,9 @@ class Product(models.Model):
     stock = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
     launch_date = models.DateField(null=True, blank=True)
+    priority = models.CharField(
+        max_length=10, choices=Priority.choices, blank=True, default=""
+    )
 
     def __str__(self):
         return self.name

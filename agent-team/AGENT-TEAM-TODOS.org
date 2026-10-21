@@ -1120,3 +1120,27 @@ CLOCK: [2026-10-17 Sat 20:21]
   Acceptance: buildSchemaPrompt wired ✓, legend restored ✓, user-visible text matches reality ✓, vitest green (63/63) ✓.
   UNVERIFIED: browser E2E (sandbox cannot run Tauri), visual verification of live chat with schema-aware prompts.
 :END:
+
+** ONGOING FR-ENUM-ONEOF — resolve case-C oneOf/BlankEnum in the normalizer  :BE:FE:
+:LOGBOOK:
+- State "ONGOING" from "TODO" [2026-10-21 Wed 00:14]
+- Note taken on [2026-10-21 Wed 00:14] :: Opened by platform-engineer (chain
+  segment, seat platform-engineer). WORK ORDER items 1-11 all carry
+  PENDING-with-:DELIVERED: evidence at this HEAD and no item sits TODO/ONGOING
+  under this seat, so rather than add a no-progress segment to stall
+  accounting this takes the ONE defect the queue filed and never closed:
+  item-6's :DELIVERED: note "FOUND, REPORTED, NOT FIXED", re-flagged by the
+  R-004 seat ("next victim: no choices -> no columns"), the R-005 seat ("third
+  seat now flagging it") and written into docs/independent-enums.md §4 as
+  "known gap, reported, not fixed". grep at 86cf4ae confirms app/src still has
+  ZERO oneOf/anyOf handling. Product impact: a blank-allowing choice field on a
+  REAL customer API (case C, the default drf-spectacular emits because
+  ENUM_ADD_EXPLICIT_BLANK_NULL_CHOICE is True) silently degrades the R002
+  enum-select to a free-text input — an invalid value reaches DRF as a 400 with
+  no client-side hint. Scope: FE normalizer fix + a demo-rig field so the shape
+  is LIVE-proven (the repo's own fixture-provenance law), fixture recapture,
+  tests, and the §4 gap closed in docs.
+:END:
+:PROPERTIES:
+:ORDERED: t
+:END:

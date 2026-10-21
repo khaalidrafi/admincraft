@@ -7,7 +7,9 @@ Heuristics, deliberately MVP:
 - models = paths with GET+POST and a trailing slash, no '{id}'
 - FK = integer/number/string property whose name matches another model's
   singular/id (drf-spectacular emits FKs as bare `type: integer`)
-- enum = property $ref to a component carrying `enum: [...]`
+- enum = property $ref to a component carrying `enum: [...]`, OR the case-C
+  split `{"oneOf": [<ValueEnum>, BlankEnum]}` a blank/nullable choices field
+  emits (see enumShapeOf below)
 - forms are driven by <Model>Request components; response <Model> adds
   readOnly fields (id, created_at)
 */
@@ -31,13 +33,51 @@ function deref(doc: any, node: any): [string, any] {
   return [null as any, node ?? {}];
 }
 
+/** drf-spectacular hoists a choices field into a component, and when the field
+ *  also allows an empty state it SPLITS the property into
+ *  `{"oneOf": [<ValueEnum>, BlankEnum]}` (or adds `NullEnum` for null=True) —
+ *  case C of docs/independent-enums.md §2. deref() follows a top-level $ref
+ *  only, so the members are flattened here; classified by CONTENT rather than
+ *  by component name, because the emitted name is collision-resolved and
+ *  `ENUM_NAME_OVERRIDES` can rename it in any client project.
+ *  Returns null when the property carries no enum anywhere. */
+function enumShapeOf(
+  doc: any,
+  prop: any,
+): { values: string[]; blank: boolean; nullChoice: boolean } | null {
+  const members = Array.isArray(prop?.oneOf)
+    ? prop.oneOf
+    : Array.isArray(prop?.anyOf)
+      ? prop.anyOf
+      : [prop];
+  const shape = { values: [] as string[], blank: false, nullChoice: false };
+  let found = false;
+  for (const member of members) {
+    const [, node] = deref(doc, member);
+    const list = (node as any)?.enum;
+    if (!Array.isArray(list)) continue;
+    found = true;
+    for (const value of list) {
+      if (value === null || value === undefined) {
+        shape.nullChoice = true; // NullEnum -> the wire really accepts null
+        continue;
+      }
+      if (value === "") {
+        shape.blank = true; // BlankEnum -> empty means "omit", never "send null"
+        continue;
+      }
+      const text = String(value);
+      if (!shape.values.includes(text)) shape.values.push(text);
+    }
+  }
+  return found ? shape : null;
+}
+
 function fieldTypeOf(doc: any, propName: string, prop: any,
                      names: Map<string, string>): FieldSpec["type"] {
-  const [refName, resolved] = deref(doc, prop);
-
-  // enum via $ref (drf-spectacular hoists TextChoices into components)
-  if (Array.isArray((prop as any).enum)) return "enum";
-  if (refName && Array.isArray(resolved?.enum)) return "enum";
+  // enum via $ref OR via the case-C oneOf split (drf-spectacular hoists
+  // TextChoices into components)
+  if (enumShapeOf(doc, prop)) return "enum";
 
   // FK: property name (minus optional _id) matches another model's
   // singular or path id — drf-spectacular emits FKs as bare integers
@@ -75,21 +115,21 @@ function fieldTypeOf(doc: any, propName: string, prop: any,
 
 function propToField(doc: any, propName: string, prop: any, requiredSet: Set<string>,
                      names: Map<string, string>, readOnly: boolean): FieldSpec {
-  const [refName, resolved] = deref(doc, prop);
-  let type = fieldTypeOf(doc, propName, prop, names);
-  let choices: string[] | undefined;
-  if (type === "enum") {
-    choices = ((prop as any).enum ?? resolved?.enum ?? []).map(String);
-  }
+  const shape = enumShapeOf(doc, prop);
+  const type = fieldTypeOf(doc, propName, prop, names);
   const field: FieldSpec = {
     name: propName,
     type,
     required: !readOnly && requiredSet.has(propName),
     readOnly,
-    nullable: Boolean(prop.nullable),
+    // NullEnum is the schema saying the WIRE accepts null; BlankEnum only says
+    // the field may be omitted, so it must NOT flip nullable — RecordForm
+    // .buildPayload sends null for an empty nullable field, which a
+    // blank-but-not-null CharField answers with 400.
+    nullable: Boolean(prop.nullable) || Boolean(shape?.nullChoice),
     format: prop.format,
   };
-  if (choices) field.choices = choices;
+  if (type === "enum") field.choices = shape?.values ?? [];
   if (type === "fk") {
     const name = propName.toLowerCase().replace(/_id$/, "");
     field.fkModel = names.get(name);

@@ -2058,10 +2058,29 @@
                         "format": "date",
                         "nullable": true
                     },
+                    "priority": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/PriorityEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
                     "category": {
                         "type": "integer"
                     }
                 }
+            },
+            "PriorityEnum": {
+                "enum": [
+                    "low",
+                    "normal",
+                    "high"
+                ],
+                "type": "string",
+                "description": "* `low` - Low\n* `normal` - Normal\n* `high` - High"
             },
             "Product": {
                 "type": "object",
@@ -2095,6 +2114,16 @@
                         "type": "string",
                         "format": "date",
                         "nullable": true
+                    },
+                    "priority": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/PriorityEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
                     },
                     "category": {
                         "type": "integer"
@@ -2136,6 +2165,16 @@
                         "type": "string",
                         "format": "date",
                         "nullable": true
+                    },
+                    "priority": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/PriorityEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
                     },
                     "category": {
                         "type": "integer"

@@ -90,6 +90,10 @@ class Command(BaseCommand):
                     stock=random.randint(0, 120),
                     is_active=random.random() > 0.15,
                     launch_date=(now - timedelta(days=random.randint(1, 400))).date(),
+                    # a real spread of the blank-allowing free enum, including
+                    # the empty state (case C), so the client's select and its
+                    # "omit empty" payload rule are demonstrable live
+                    priority=random.choice(["", *Product.Priority.values]),
                 ))
         # ensure deterministic non-random pk ordering isn't relied on anywhere
         products = list(Product.objects.order_by("id"))

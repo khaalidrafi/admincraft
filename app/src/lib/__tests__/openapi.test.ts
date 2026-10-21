@@ -244,3 +244,112 @@ describe("lifecycle discovery (FR-R001)", () => {
     expect(out.models.map((m) => m.id)).toEqual(["orders"]);
   });
 });
+
+describe("blank/nullable choices — case C oneOf split (FR-ENUM-ONEOF)", () => {
+  /** Minimal doc whose `priority` property is whatever shape we want to feed
+   *  the normalizer — the real rig emits the case-C split below. */
+  function docWithPriority(priority: any) {
+    return {
+      paths: {
+        "/api/products/": {
+          get: { responses: { "200": { content: { "application/json": { schema: { $ref: "#/components/schemas/PaginatedProductList" } } } } } },
+          post: { requestBody: { content: { "application/json": { schema: { $ref: "#/components/schemas/ProductRequest" } } } } },
+        },
+      },
+      components: {
+        schemas: {
+          Product: { properties: { id: { type: "integer", readOnly: true }, name: { type: "string" }, priority } },
+          ProductRequest: { properties: { name: { type: "string" }, priority }, required: ["name"] },
+          PaginatedProductList: {
+            properties: { results: { type: "array", items: { $ref: "#/components/schemas/Product" } } },
+          },
+          PriorityEnum: { type: "string", enum: ["low", "normal", "high"] },
+          PriorityEnum_9f2c41e7: { type: "string", enum: ["low", "normal", "high"] },
+          BlankEnum: { enum: [""] },
+          NullEnum: { enum: [null] },
+        },
+      },
+    };
+  }
+
+  const caseC = {
+    oneOf: [
+      { $ref: "#/components/schemas/PriorityEnum" },
+      { $ref: "#/components/schemas/BlankEnum" },
+    ],
+  };
+
+  it("resolves the live rig's case-C field to an enum, not free text", () => {
+    const field = schema.byId.products.byName.priority;
+    // The bug this pins: deref() followed only a top-level $ref, so a
+    // {"oneOf":[PriorityEnum, BlankEnum]} property fell through to type "text"
+    // and the select silently degraded into a text input.
+    expect(field.type).toBe("enum");
+    expect(field.choices).toEqual(["low", "normal", "high"]);
+    expect(field.required).toBe(false); // blank=True -> never in required
+  });
+
+  it("keeps the empty state out of choices and out of nullable", () => {
+    const field = schema.byId.products.byName.priority;
+    // BlankEnum means "may be omitted"; RecordForm renders its own "—" option
+    // and buildPayload omits the key. Marking it nullable would send null,
+    // which the live rig answers with 400 for a blank-but-not-null CharField.
+    expect(field.choices).not.toContain("");
+    expect(field.nullable).toBe(false);
+  });
+
+  it("does not disturb case A/B — a plain $ref enum binds exactly as before", () => {
+    const status = schema.byId.orders.byName.status;
+    expect(status.type).toBe("enum");
+    expect(status.choices).toEqual(["pending", "paid", "shipped", "refunded"]);
+    expect(status.nullable).toBe(false);
+  });
+
+  it("NullEnum is the nullable signal — the wire really accepts null", () => {
+    const out = normalizeOpenAPI(docWithPriority({
+      oneOf: [
+        { $ref: "#/components/schemas/PriorityEnum" },
+        { $ref: "#/components/schemas/NullEnum" },
+      ],
+    }));
+    expect(out.byId.products.byName.priority.type).toBe("enum");
+    expect(out.byId.products.byName.priority.choices).toEqual(["low", "normal", "high"]);
+    expect(out.byId.products.byName.priority.nullable).toBe(true);
+  });
+
+  it("classifies members by CONTENT, not by component name", () => {
+    // drf-spectacular collision-resolves enum component names (hooks.py:96-103)
+    // and a client project adds ENUM_NAME_OVERRIDES, so the suffix is not a
+    // contract — the empty-string / null member inside the component is.
+    const out = normalizeOpenAPI(docWithPriority({
+      oneOf: [
+        { $ref: "#/components/schemas/PriorityEnum_9f2c41e7" },
+        { $ref: "#/components/schemas/BlankEnum" },
+      ],
+    }));
+    expect(out.byId.products.byName.priority.choices).toEqual(["low", "normal", "high"]);
+  });
+
+  it("an inline enum with the blank mixed in still resolves", () => {
+    const out = normalizeOpenAPI(docWithPriority({ type: "string", enum: ["low", "normal", "high", ""] }));
+    expect(out.byId.products.byName.priority.type).toBe("enum");
+    expect(out.byId.products.byName.priority.choices).toEqual(["low", "normal", "high"]);
+    expect(out.byId.products.byName.priority.nullable).toBe(false);
+  });
+
+  it("refuses to over-claim: a oneOf of non-enums stays free text", () => {
+    const out = normalizeOpenAPI(docWithPriority({
+      oneOf: [{ type: "string" }, { type: "integer" }],
+    }));
+    expect(out.byId.products.byName.priority.type).toBe("text");
+    expect(out.byId.products.byName.priority.choices).toBeUndefined();
+  });
+
+  it("the case-C field is writable in the form payload path", () => {
+    // forms are driven by <Model>Request; the same property shape arrives there
+    const out = normalizeOpenAPI(docWithPriority(caseC));
+    const editable = out.byId.products.fields.filter((f) => !f.readOnly);
+    expect(editable.map((f) => f.name)).toContain("priority");
+    expect(editable.find((f) => f.name === "priority")!.type).toBe("enum");
+  });
+});
